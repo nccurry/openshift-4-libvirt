@@ -1,0 +1,26 @@
+<network>
+  <name>{{ cluster_prefix }}-{{ network.domain_suffix }}</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <dns>
+    <forwarder addr="{{ utility.ip }}" domain='{{ network.domain_suffix }}'/>
+    <forwarder addr="8.8.8.8"/>
+    <forwarder addr="8.8.4.4"/>
+  </dns>
+  <bridge name='{{ network.bridge_name }}' stp='on' delay='0'/>
+  <mac address='{{ network.mac }}'/>
+  <domain name='{{ cluster_prefix }}-{{ network.domain_suffix }}' localOnly='no'/>
+  <ip address='{{ network.gateway }}' netmask='{{ network.netmask }}'>
+    <dhcp>
+      <range start='{{ network.dhcp_start }}' end='{{ network.dhcp_end }}'/>
+      <host mac='{{ utility.mac }}' name='{{ utility.name }}' ip='{{ utility.ip }}'/>
+      <host mac='{{ master.mac }}' name='{{ master.name }}' ip='{{ master.ip }}'/>
+      <host mac='{{ worker.mac }}' name='{{ worker.name }}' ip='{{ worker.ip }}'/>
+      <host mac='{{ bootstrap.mac }}' name='{{ bootstrap.name }}' ip='{{ bootstrap.ip }}'/>
+      <bootp file='pxelinux.0' server='{{ utility.ip }}'/>
+    </dhcp>
+  </ip>
+</network>

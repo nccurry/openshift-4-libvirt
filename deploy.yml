@@ -1,0 +1,321 @@
+#!/usr/bin/env ansible-playbook
+- name: Configure libvirt environment
+  hosts: "{{ libvirt_host }}"
+  become: true
+  gather_facts: false
+  vars_files:
+  - vars.yml
+  pre_tasks:
+  - name: Install prerequisites packages
+    package:
+      name:
+      - python3-lxml
+      - qemu-img
+      - python3-libselinux
+      - python3-libvirt
+      - python3-gssapi
+    tags:
+    - never
+    - install_libvirt_prerequisites
+
+  tasks:
+  - name: Create libvirt network
+    virt_net:
+      command: define
+      autostart: yes
+      name: "{{ cluster_prefix }}-{{ network.domain_suffix }}"
+      xml: "{{ lookup('template', 'templates/network.xml.j2') }}"
+  
+  - name: Start libvirt network
+    virt_net:
+      autostart: yes
+      state: active
+      name: "{{ cluster_prefix }}-{{ network.domain_suffix }}"
+
+  - name: Generate meta-data file for utilty host cloud-init
+    copy:
+      content: |
+        instance-id: iid-ansibledeploy
+        local-hostname: {{ utility.name }}
+        hostname: {{ utility.name }}
+      dest: /tmp/meta-data
+
+  # # http://cloudinit.readthedocs.io/en/latest/topics/examples.html
+  - name: Generate user-data files for cloud-init
+    copy:
+      content: |
+        #cloud-config
+        users:
+        - name: {{ lookup('env', 'USER') }}
+          ssh_authorized_keys:
+          - {{ ssh_pub_key }}
+          sudo: ALL=(ALL) NOPASSWD:ALL  
+        # power_state:
+        #   mode: reboot
+        #   message: Rebooting after cloud-init
+        #   timeout: 300
+        #   condition: True
+      dest: /tmp/user-data
+
+  - name: Generate utility cloud-init isos
+    shell: "genisoimage
+              -output /tmp/cidata.iso
+              -input-charset utf-8
+              -volid cidata
+              -joliet
+              -rock
+              /tmp/meta-data
+              /tmp/user-data"
+    args:
+      creates: /tmp/cidata.iso
+
+  - name: Clone utility cloud-init disk
+    copy:
+      src: "{{ utility_qcow2_path }}"
+      dest: "{{ libvirt_domain_path }}/{{ utility.name }}.qcow2"
+      force: no
+
+  - name: Create utility vm
+    virt:
+      command: define
+      name: "{{ utility.name }}"
+      xml: "{{ lookup('template', 'templates/utility.xml.j2') }}"
+
+  - name: Start vms
+    virt:
+      state: running
+      name: "{{ utility.name }}"
+
+  - name: Add utility host group
+    add_host:
+      name: "{{ utility.ip }}"
+      groups: 
+      - utility
+    changed_when: false
+    tags:
+    - always
+
+- name: Configure utility host
+  hosts: utility
+  become: true
+  gather_facts: false
+  vars_files:
+  - vars.yml
+  tags:
+  - configure_utility
+  pre_tasks:
+  - wait_for_connection:
+  tasks:
+  - name: Install prerequisite packages
+    yum:
+      name:
+      - python3-firewall # ansible firewalld
+      - qemu-guest-agent
+      - firewalld
+      - haproxy
+      - dnsmasq
+      - httpd
+      - tftp-server
+      - bind-utils
+
+  - name: Create dnsmasq configuration file
+    template:
+      src: templates/dnsmasq.conf.j2
+      dest: /etc/dnsmasq.conf
+
+  - name: Install/configure haproxy infrastructure
+    block:
+    - name: Create haproxy configuration file
+      template:
+        src: templates/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+
+    - name: Allow haproxy to bind to any socket
+      seboolean: 
+        name: haproxy_connect_any
+        state: yes
+        persistent: yes
+
+  - name: Install/configure httpd infrastructure
+    tags: 
+    - configure_utility_httpd
+    block:
+    - name: Create httpd configuration file
+      copy:
+        src: files/httpd.conf
+        dest: /etc/httpd/conf/httpd.conf
+
+    - name: Create httpd directories for installing
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: 0755
+      with_items:
+      - /var/www/html/install
+      - /var/www/html/ignition
+
+    - name: Get OCP4 installer bios
+      get_url:
+        url: "{{ files.rhcos_bios.url }}"
+        dest: /var/www/html/install/bios.raw.gz
+        checksum: "{{ files.rhcos_bios.checksum }}"
+        mode: 0555
+
+    - name: Best effort SELinux repair - Apache
+      shell: "restorecon -vR /var/www/html || true"
+
+  - name: Install/configure pxe infrastructure
+    tags: 
+    - configure_utility_pxe
+    block:
+    - name: Create tftp configuration directory
+      file:
+        state: directory
+        path: /var/lib/tftpboot/pxelinux.cfg
+
+    # https://wiki.syslinux.org/wiki/index.php?title=PXELINUX#Configuration
+    - name: Create pxe boot configurations
+      template:
+        src: templates/pxelinux.cfg.j2
+        dest: "/var/lib/tftpboot/pxelinux.cfg/01-{{ item.mac | regex_replace(':', '-') }}"
+      loop:
+      - type: bootstrap
+        mac: "{{ bootstrap.mac }}"
+      - type: master
+        mac: "{{ master.mac }}"
+      - type: worker
+        mac: "{{ worker.mac }}"
+
+    - name: Create tftp rhcos directory
+      file:
+        path: /var/lib/tftpboot/rhcos
+        state: directory
+        mode: 0755
+
+    # TODO: Replace with more robust/specific tasks
+    - name: Copy over files needed for TFTP
+      shell: "cp -a /usr/share/syslinux/* /var/lib/tftpboot"
+
+    - name: Get OCP4 installer initramfs
+      get_url:
+        url: "{{ files.rhcos_initramfs.url }}"
+        dest: /var/lib/tftpboot/rhcos/initramfs.img
+        mode: 0555
+        checksum: "{{ files.rhcos_initramfs.checksum }}"
+
+    - name: Get OCP4 installer kernel
+      get_url:
+        url: "{{ files.rhcos_kernel.url }}"
+        dest: /var/lib/tftpboot/rhcos/kernel
+        mode: 0555
+        checksum: "{{ files.rhcos_kernel.checksum }}"
+
+  - name: Start/enable services
+    systemd:
+      name: "{{ item }}"
+      enabled: yes
+      state: started
+    loop:
+    - firewalld
+    - haproxy
+    - httpd
+    - tftp
+    - dnsmasq
+
+  - name: Create firewall rules
+    firewalld:
+      port: "{{ item }}"
+      permanent: yes
+      state: enabled
+      immediate: yes
+    loop: 
+    - 53/tcp # dnsmasq
+    - 53/udp # dnsmasq
+    - 69/udp # tftp
+    - 8008/tcp # httpd
+    - 9000/tcp # haproxy stats
+    - 22623/tcp # ocp machine config
+    - 22623/udp # ocp machine config
+    - 6443/tcp # ocp api
+    - 6443/udp # ocp api
+    - 80/tcp # ocp haproxy
+    - 443/tcp # ocp haproxy
+
+  - name: Install/configure OpenShift deployment utilities
+    tags: 
+    - configure_utility_openshift
+    block:
+    - name: Dowloading oc client
+      get_url:
+        url: "{{ files.oc_client.url }}"
+        dest: /tmp/oc.tar.gz
+        checksum: "{{ files.oc_client.checksum }}"
+
+    - name: Unarchiving oc client
+      unarchive:
+        src: /tmp/oc.tar.gz
+        dest: /usr/local/bin
+        remote_src: yes
+
+    - name: Dowloading openshift installer
+      get_url:
+        url: "{{ files.installer.url }}"
+        dest: /tmp/installer.tar.gz
+        checksum: "{{ files.installer.checksum }}"
+
+    - name: Unarchiving openshift installer
+      unarchive:
+        src: /tmp/installer.tar.gz
+        dest: /usr/local/bin
+        remote_src: yes
+
+    - name: Create install-config.yml
+      template:
+        src: templates/install-config.yaml.j2
+        dest: "{{ lookup('env', 'HOME') }}/install-config.yaml.bak"
+
+    - name: Create primary install-config.yaml that gets consumed
+      copy: 
+        src: "{{ lookup('env', 'HOME') }}/install-config.yaml.bak"
+        dest: "{{ lookup('env', 'HOME') }}/install-config.yaml"
+        remote_src: yes
+
+    - name: Generate ignition configurations
+      command: "openshift-install create ignition-configs --dir {{ lookup('env', 'HOME') }}"
+      args:
+        creates: "{{ lookup('env', 'HOME') }}/worker.ign"
+
+    - name: Copy ignition files to be served
+      shell: "cp {{ lookup('env', 'HOME') }}/*.ign /var/www/html/ignition/"
+
+    - name: Set permissions
+      shell: "restorecon -vR /var/www/html/"
+
+- name: Deploy OpenShift environment
+  hosts: "{{ libvirt_host }}"
+  become: true
+  gather_facts: false
+  vars_files:
+  - vars.yml
+  tags:
+  - configure_openshift
+  tasks:
+  - name: Create host disks
+    command: "qemu-img create -f qcow2 {{ libvirt_domain_path }}/{{ item.name }}.qcow2 {{ item.disk_size }}"
+    args:
+      creates: "{{ libvirt_domain_path }}/{{ item.name }}.qcow2"
+    loop:
+    - "{{ master }}"
+    - "{{ worker }}"
+    - "{{ bootstrap }}"
+
+  - name: Create hosts
+    virt:
+      command: define
+      name: "{{ item.name }}"
+      xml: "{{ lookup('template', 'templates/rhcos.xml.j2') }}"
+    loop:
+    - "{{ master }}"
+    - "{{ worker }}"
+    - "{{ bootstrap }}"
+  

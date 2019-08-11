@@ -1,0 +1,71 @@
+cluster_prefix: ocp4
+libvirt_host: localhost
+libvirt_domain_path: /var/lib/libvirt/images
+utility_qcow2_path: "{{ lookup('env', 'HOME') }}/documents/isos/fedora/Fedora-Cloud-Base-30-1.2.x86_64.qcow2"
+ssh_pub_key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+# Space in beginning of pull secret needed to work around 
+# https://github.com/ansible/ansible/issues/15603
+# https://github.com/ansible/ansible/issues/46169
+pull_secret: " {{ lookup('file', 'pull-secret.txt') }}"
+
+files:
+  rhcos_initramfs:
+    url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.1/4.1.0/rhcos-4.1.0-x86_64-installer-initramfs.img
+    checksum: sha256:9cbbdc92b687f87b511191ea866fc8dd080598954bd1a9ab7ed7157ac6a2adcc
+  rhcos_kernel:
+    url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.1/4.1.0/rhcos-4.1.0-x86_64-installer-kernel
+    checksum: sha256:fc984907fdd3674f8412e3ba5d9cdad461f04b7f9ea5e2ca142e3292997ed6bb
+  rhcos_bios:
+    url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.1/4.1.0/rhcos-4.1.0-x86_64-metal-bios.raw.gz
+    checksum: sha256:662fe69b6db719717d36a547828eb69b8f6a7787a99bcd4fdce408e083fc2ef4
+  oc_client:
+    url: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.1.10/openshift-client-linux-4.1.10.tar.gz
+    checksum: sha256:09792aa79a559e2258870db6ee7a31842e4a93efac7182f670fc942d0176de73
+  installer: 
+    url: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.1.10/openshift-install-linux-4.1.10.tar.gz
+    checksum: sha256:2ba348cd8b77ef5dc88ad3704c94ba159bb672246b43f31d962c1e3c90f568cd
+
+network:
+  domain_suffix: lab.local
+  bridge_name: virbr2
+  mac: 52:54:00:1b:1c:da
+  network: 10.0.10.0/24
+  netmask: 255.255.255.0
+  broadcast: 10.0.10.255
+  gateway: 10.0.10.1
+  dhcp_start: 10.0.10.10
+  dhcp_end: 10.0.10.20
+  upstream_dns_1: 8.8.8.8
+  upstream_dns_2: 8.8.4.4
+
+utility:
+  name: "{{ cluster_prefix }}-utility.{{ network.domain_suffix }}"
+  ip: 10.0.10.10
+  mac: 52:54:00:7b:0a:15
+  memory: 2048
+  cpus: 1
+  disk_size: 20G
+
+master:
+  name: "{{ cluster_prefix }}-master.{{ network.domain_suffix }}"
+  ip: 10.0.10.11
+  mac: 52:54:00:4a:c3:b9
+  memory: 16932
+  cpus: 4
+  disk_size: 20G
+
+worker:
+  name: "{{ cluster_prefix }}-worker.{{ network.domain_suffix }}"
+  ip: 10.0.10.12
+  mac: 52:54:00:72:1c:71
+  memory: 16932
+  cpus: 4
+  disk_size: 20G
+
+bootstrap:
+  name: "{{ cluster_prefix }}-bootstrap.{{ network.domain_suffix }}"
+  ip: 10.0.10.13
+  mac: 52:54:00:dc:eb:e1
+  memory: 16932
+  cpus: 4
+  disk_size: 20G

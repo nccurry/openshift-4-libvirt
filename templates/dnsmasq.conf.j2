@@ -1,0 +1,16 @@
+no-hosts
+domain={{ network.domain_suffix }},{{ network.network }},local
+auth-zone={{ network.domain_suffix }},{{ network.network }}
+
+host-record={{ utility.name }},{{ utility.ip }}
+host-record={{ master.name }},{{ master.ip }}
+host-record={{ worker.name }},{{ worker.ip }}
+host-record={{ bootstrap.name }},{{ bootstrap.ip }}
+
+host-record=api.{{ cluster_prefix }}.{{ network.domain_suffix }},{{ utility.ip }}
+host-record=api-int.{{ cluster_prefix }}.{{ network.domain_suffix }},{{ utility.ip }}
+
+host-record=etcd-0.{{ cluster_prefix }}.{{ network.domain_suffix }},{{ master.ip }}
+srv-host=_etcd-server-ssl._tcp.{{ cluster_prefix }}.{{ network.domain_suffix }},etcd-0.{{ cluster_prefix }}.{{ network.domain_suffix }},2380,0,10
+
+address=/apps.{{ cluster_prefix }}.{{ network.domain_suffix }}/{{ utility.ip }}

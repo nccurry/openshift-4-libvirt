@@ -1,0 +1,30 @@
+<domain type='kvm'>
+  <name>{{ utility.name }}</name>
+  <memory unit='MiB'>{{ utility.memory }}</memory>
+  <vcpu placement='static'>{{ utility.cpus }}</vcpu>
+  <os>
+    <type arch='x86_64'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{{ libvirt_domain_path }}/{{ utility.name }}.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='/tmp/cidata.iso'/>
+      <target dev='hda' bus='ide'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <mac address='{{ utility.mac }}'/>
+      <source network='{{ cluster_prefix }}-{{ network.domain_suffix }}'/>
+      <model type='virtio'/>
+    </interface>
+    <graphics type='spice' autoport='yes'>
+      <listen type='address'/>
+    </graphics>
+  </devices>
+</domain>

@@ -1,0 +1,25 @@
+<domain type='kvm'>
+  <name>{{ item.name }}</name>
+  <memory unit='MiB'>{{ item.memory }}</memory>
+  <vcpu placement='static'>{{ item.cpus }}</vcpu>
+  <os>
+    <type arch='x86_64'>hvm</type>
+    <boot dev='hd'/>
+    <boot dev='network'/>
+  </os>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{{ libvirt_domain_path }}/{{ item.name }}.qcow2'/>
+      <target dev='hda' bus='ide'/>
+    </disk>
+    <interface type='network'>
+      <mac address='{{ item.mac }}'/>
+      <source network='{{ cluster_prefix }}-{{ network.domain_suffix }}' bridge='{{ network.bridge_name }}'/>
+      <model type='e1000'/>
+    </interface>
+    <graphics type='spice' autoport='yes'>
+      <listen type='address'/>
+    </graphics>
+  </devices>
+</domain>

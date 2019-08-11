@@ -1,0 +1,35 @@
+#!/usr/bin/env ansible-playbook
+- name: Destroy libvirt environment
+  hosts: "{{ libvirt_host }}"
+  become: true
+  gather_facts: false
+  vars_files:
+  - vars.yml
+  tasks:
+  - name: Poweroff/destroy utility vm
+    virt:
+      state: destroyed
+      name: "{{ utility.name }}"
+    ignore_errors: yes
+
+  - name: Undefine utility vm
+    virt:
+      command: undefine
+      name: "{{ utility.name }}"
+    ignore_errors: yes
+
+  - name: Delete utility cloud-init disk
+    file:
+      state: absent
+      path: "{{ item }}"
+    loop:
+    - "{{ libvirt_domain_path }}/{{ utility.name }}.qcow2"
+    - /tmp/meta-data
+    - /tmp/user-data
+    - /tmp/cidata.iso
+  
+  - name: Destroy libvirt network
+    virt_net:
+      state: absent
+      name: "{{ cluster_prefix }}-{{ network.domain_suffix }}"
+

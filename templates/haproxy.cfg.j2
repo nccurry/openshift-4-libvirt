@@ -1,0 +1,71 @@
+global
+    log         127.0.0.1 local2
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     4000
+    user        haproxy
+    group       haproxy
+    daemon
+
+defaults
+    mode                    tcp
+    log                     global
+    option                  tcplog
+    retries                 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+    maxconn                 3000
+
+listen stats
+    bind :9000
+    mode http
+    stats enable
+    stats hide-version
+    stats realm Haproxy\ Statistics
+    stats uri /haproxy_stats
+    stats auth admin:admin
+
+frontend kubernetes_api
+    bind 0.0.0.0:6443
+    default_backend kubernetes_api
+
+backend kubernetes_api
+    balance roundrobin
+    option ssl-hello-chk
+    server bootstrap {{ bootstrap.ip }}:6443 check
+    server master {{ master.ip }}:6443 check
+
+frontend machine_config
+    bind 0.0.0.0:22623
+    default_backend machine_config
+
+backend machine_config
+    balance roundrobin
+    option ssl-hello-chk
+    server bootstrap {{ bootstrap.ip }}:22623 check
+    server master {{ master.ip }}:22623 check
+
+frontend router_https
+    bind 0.0.0.0:443
+    default_backend router_https
+
+backend router_https
+    balance roundrobin
+    option ssl-hello-chk
+    server worker {{ worker.ip }}:443 check
+
+frontend router_http
+    mode http
+    option httplog
+    bind 0.0.0.0:80
+    default_backend router_http
+
+backend router_http
+    mode http
+    balance roundrobin
+    server worker {{ worker.ip }}:80 check
